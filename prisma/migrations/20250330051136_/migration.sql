@@ -1,0 +1,8 @@
+-- AlterTable
+ALTER TABLE "pedido" ALTER COLUMN "horaInicio" DROP NOT NULL,
+ALTER COLUMN "horaPausa" DROP NOT NULL,
+ALTER COLUMN "horaReinicio" DROP NOT NULL,
+ALTER COLUMN "horaFinal" DROP NOT NULL,
+ALTER COLUMN "observacoes" DROP NOT NULL,
+ALTER COLUMN "tempoProduzindo" DROP NOT NULL,
+ALTER COLUMN "tempoTotal" DROP NOT NULL;
