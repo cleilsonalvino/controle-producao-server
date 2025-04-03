@@ -1,9 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
+// schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -12,19 +7,67 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
-
+// Modelo representando um pedido
 model pedido {
-  codigo Int @id @unique
-  dataAtual DateTime
-  tipo String
-  quantidade Int
-  responsavel String
-  situacao String
-  horaInicio DateTime?
-  horaPausa DateTime?
-  horaReinicio DateTime?
-  horaFinal DateTime?
-  observacoes String?
-  tempoProduzindo DateTime?
-  tempoTotal DateTime?
+  codigo       Int              @id @unique // Identificador único do pedido
+  dataAtual    DateTime // Data do pedido
+  tipo         String  // Tipo do pedido
+  quantidade   Int     // Quantidade solicitada
+  situacao     String  // Status do pedido (ex: Em andamento, Concluído)
+  horaInicio   DateTime?  // Horário de início da produção (opcional)
+  horaPausa    DateTime?  // Horário de pausa da produção (opcional)
+  horaReinicio DateTime?  // Horário de reinício da produção (opcional)
+  horaFinal    DateTime?  // Horário de conclusão da produção (opcional)
+  observacoes  String?    // Observações adicionais sobre o pedido (opcional)
+  tempoProduzindo Int? // Tempo efetivo de produção em minutos (opcional)
+  tempoTotal   Int?    // Tempo total do pedido em minutos (opcional)
+
+  // Relacionamento: Um pedido pode ter um ou mais funcionários
+  funcionarios funcionarioPedido[]
+  maquinarios maquinarioPedido[]
+}
+
+// Modelo representando um funcionário
+model funcionario {
+  id   Int    @id @default(autoincrement()) // Identificador único do funcionário (autoincrementado)
+  nome String @unique // Nome do funcionário
+  setor String // Setor onde o funcionário trabalha
+
+  // Relacionamento: Um funcionário pode estar em vários pedidos (mas não é obrigatório)
+  pedidos funcionarioPedido[]
+}
+
+// Modelo intermediário que representa a relação entre pedidos e funcionários
+model funcionarioPedido {
+  pedidoCodigo   Int // Chave estrangeira que referencia um pedido
+  funcionarioId  Int // Chave estrangeira que referencia um funcionário
+
+  // Definição da relação com o modelo "pedido"
+  pedido      pedido      @relation(fields: [pedidoCodigo], references: [codigo], onDelete: Cascade)
+  
+  // Definição da relação com o modelo "funcionario"
+  funcionario funcionario @relation(fields: [funcionarioId], references: [id])
+
+  // Define uma chave composta para garantir que um funcionário não seja adicionado ao mesmo pedido mais de uma vez
+  @@id([pedidoCodigo, funcionarioId])
+}
+
+model maquinarioPedido {
+  pedidoCodigo   Int // Chave estrangeira que referencia um pedido
+  maquinarioId   Int // Chave estrangeira que referencia um maquinário
+
+  // Definição da relação com o modelo "pedido"
+  pedido      pedido      @relation(fields: [pedidoCodigo], references: [codigo], onDelete: Cascade)
+  
+  // Definição da relação com o modelo "maquinario"
+  maquinario maquinario @relation(fields: [maquinarioId], references: [id])
+
+  // Define uma chave composta para garantir que um maquinário não seja adicionado ao mesmo pedido mais de uma vez
+  @@id([pedidoCodigo, maquinarioId])
+}
+
+model maquinario {
+  id Int @id @default(autoincrement()) // Identificador único do maquinário (autoincrementado)
+  nome String @unique // Nome do maquinário
+  pedidos maquinarioPedido[] // Relacionamento com o modelo "maquinarioPedido"
 }
