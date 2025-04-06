@@ -8,37 +8,39 @@ datasource db {
 }
 
 model pedido {
-  codigo         Int       @id @unique
-  dataAtual      DateTime
-  tipo           String
-  quantidade     Int
-  situacao       String
-  horaInicio     DateTime?
-  horaPausa      DateTime?
-  horaReinicio   DateTime?
-  horaFinal      DateTime?
-  observacoes    String?
-  tempoProduzindo String?
-  tempoTotal     String?
+  codigo           Int       @id @unique
+  dataAtual        DateTime
+  tipo             String
+  quantidade       Int
+  situacao         String
+  horaInicio       DateTime?
+  horaPausa        DateTime?
+  horaReinicio     DateTime?
+  horaFinal        DateTime?
+  observacoes      String?
+  tempoProduzindo  String?
+  tempoTotal       String?
 
   // Relações
-  maquinarios    pedidoMaquinario[]
-  funcionarios   funcionarioPedido[]
+  maquinarios      pedidoMaquinario[]
+  funcionarios     funcionarioPedido[]
+  pausas           pausa[]
+  tipoDetalhes     tipoPedido? @relation(name: "PedidoTipo")
 }
 
 
 model funcionario {
-  id   Int    @id @default(autoincrement())
-  nome String @unique
-  setor String
+  id         Int    @id @default(autoincrement())
+  nome       String @unique
+  setor      String
 
-  pedidos funcionarioPedido[]
+  pedidos    funcionarioPedido[]
 }
 
 model maquinario {
-  id      Int      @id @default(autoincrement())
-  nome    String   @unique
-  pedidos pedidoMaquinario[]
+  id         Int      @id @default(autoincrement())
+  nome       String   @unique
+  pedidos    pedidoMaquinario[]
 }
 
 model pedidoMaquinario {
@@ -51,8 +53,6 @@ model pedidoMaquinario {
   @@id([pedidoCodigo, maquinarioId])
 }
 
-
-
 model funcionarioPedido {
   pedidoCodigo   Int
   funcionarioId  Int
@@ -63,4 +63,36 @@ model funcionarioPedido {
   @@id([pedidoCodigo, funcionarioId])
 }
 
+model pausa {
+  id           Int      @id @default(autoincrement())
+  pedidoCodigo Int
+  horaPausa    DateTime
+  horaRetorno  DateTime
 
+  pedido       pedido   @relation(fields: [pedidoCodigo], references: [codigo], onDelete: Cascade)
+}
+
+model tipoPedido {
+  id           Int     @id @default(autoincrement())
+  pedidoCodigo Int     @unique
+
+  pedido       pedido  @relation(name: "PedidoTipo", fields: [pedidoCodigo], references: [codigo], onDelete: Cascade)
+  metragens    Metragem[]
+  lencol       Lencol? // <- Nova relação, pode ou não ter lencol
+}
+
+model Metragem {
+  id          Int        @id @default(autoincrement())
+  valor       String     // Exemplo: "1,33 x 1,33"
+  tipoPedido  tipoPedido @relation(fields: [tipoPedidoId], references: [id], onDelete: Cascade)
+  tipoPedidoId Int
+}
+
+model Lencol {
+  id                Int        @id @default(autoincrement())
+  quantidadeLencol  Int
+  quantidadeFronha  Int
+  quantidadeCortina Int?       // Cortina é opcional
+  tipoPedido        tipoPedido @relation(fields: [tipoPedidoId], references: [id], onDelete: Cascade)
+  tipoPedidoId      Int        @unique
+}

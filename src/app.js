@@ -156,56 +156,91 @@ app.post("/finalizar-pedido/:codigo", async (req, res) => {
   }
 });
 
-
-
-
 app.post("/adicionar-pedido", async (req, res) => {
-  const { codigo, tipo, quantidade, funcionarios } = req.body; // Removido maquinarios do destructuring
+  const { codigo, tipo, quantidade, funcionarios, metragens } = req.body;
 
   try {
-    // Validação básica
     if (!codigo || !tipo || !quantidade) {
       return res.status(400).json({ error: "Campos obrigatórios faltando" });
     }
 
-    // Criando o pedido (sem maquinários)
-    const novoPedido = await prisma.pedido.create({
-      data: {
-        codigo: parseInt(codigo),
-        tipo,
-        quantidade: parseInt(quantidade),
-        situacao: "Pendente",
-        dataAtual: new Date(),
-        funcionarios: {
-          create: funcionarios?.map((id) => ({
-            funcionario: { connect: { id: parseInt(id) } },
-          })) || [], // Array vazio se não tiver funcionários
-        },
-        // Não incluímos maquinarios aqui - serão vinculados depois
+    const dadosPedido = {
+      codigo: parseInt(codigo),
+      tipo,
+      quantidade: parseInt(quantidade),
+      situacao: "Pendente",
+      dataAtual: new Date(),
+      funcionarios: {
+        create: funcionarios?.map((id) => ({
+          funcionario: { connect: { id: parseInt(id) } },
+        })) || [],
       },
+    };
+
+    // Se for tipo PAINEL, cria metragens vinculadas
+    if (tipo === "PAINEL" && Array.isArray(metragens)) {
+      dadosPedido.tipoDetalhes = {
+        create: {
+          metragens: {
+            create: metragens.map((valor) => ({ valor })),
+          },
+        },
+      };
+    }
+
+    // Se for tipo LENÇOL, calcula fronhas e cortinas no backend
+    if (tipo === "LENÇOL") {
+      const qtdLencol = parseInt(quantidade);
+      const qtdFronha = qtdLencol * 2;
+      const qtdCortina = qtdLencol * 2;
+    
+      dadosPedido.tipoDetalhes = {
+        create: {
+          lencol: {
+            create: {
+              quantidadeLencol: qtdLencol,
+              quantidadeFronha: qtdFronha,
+              quantidadeCortina: qtdCortina,
+            },
+          },
+        },
+      };
+    }
+    
+
+    const novoPedido = await prisma.pedido.create({
+      data: dadosPedido,
       include: {
         funcionarios: {
           include: { funcionario: true },
         },
+        tipoDetalhes: {
+          include: {
+            metragens: true,
+          },
+        },
       },
     });
 
-    // Formata a resposta
     const respostaFormatada = {
       ...novoPedido,
-      funcionarios: novoPedido.funcionarios.map(f => f.funcionario),
-      maquinarios: [], // Sempre retorna array vazio para maquinários
+      funcionarios: novoPedido.funcionarios.map((f) => f.funcionario),
+      maquinarios: [],
     };
 
     res.json(respostaFormatada);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: "Erro ao adicionar pedido",
-      details: error.message 
+      details: error.message,
     });
   }
 });
+
+
+
+
 
 app.delete("/deletar-pedido/:codigo", async (req, res) => {
   const { codigo } = req.params;
@@ -285,9 +320,8 @@ app.get("/tabela-pedidos", async (req, res) => {
             },
           },
         },
-        // Inclui apenas o primeiro maquinário vinculado (se existir)
         maquinarios: {
-          take: 1, // Pega apenas 1 registro
+          take: 1,
           include: {
             maquinario: {
               select: {
@@ -296,25 +330,54 @@ app.get("/tabela-pedidos", async (req, res) => {
             },
           },
         },
+        tipoDetalhes: {
+          include: {
+            metragens: true,
+            lencol: true,
+          },
+        },
       },
       orderBy: {
         dataAtual: "desc",
       },
     });
 
-    // Formata para retornar no formato que o frontend espera
-    const pedidosFormatados = pedidos.map(pedido => ({
-      ...pedido,
-      funcionarios: pedido.funcionarios.map(f => f.funcionario),
-      // Pega o nome do primeiro maquinário ou undefined
-      maquinario: pedido.maquinarios[0]?.maquinario
-    }));
+    const pedidosFormatados = pedidos.map((pedido, index) => {
+      let metragemFormatada = null;
+      let lencolDetalhado = null;
+
+      if (pedido.tipo === "PAINEL") {
+        if (pedido.tipoDetalhes?.metragens?.length > 0) {
+          metragemFormatada = pedido.tipoDetalhes.metragens.map(m => `${m.valor} m²`);
+        } else {
+          console.warn(`⚠️ Pedido #${pedido.codigo} (PAINEL) sem metragens.`);
+        }
+      }
+
+      if (pedido.tipo === "LENÇOL") {
+        if (pedido.tipoDetalhes?.lencol) {
+          const l = pedido.tipoDetalhes.lencol;
+          lencolDetalhado = {
+            quantidadeLencol: l.quantidadeLencol,
+            quantidadeFronha: l.quantidadeFronha,
+            quantidadeCortina: l.quantidadeCortina ?? 0,
+          };
+        } else {
+          console.warn(`⚠️ Pedido #${pedido.codigo} (LENÇOL) sem dados de lençol.`);
+        }
+      }
+
+      return {
+        ...pedido,
+        funcionarios: pedido.funcionarios.map(f => f.funcionario),
+        maquinario: pedido.maquinarios[0]?.maquinario,
+        metragem: metragemFormatada,
+        lencol: lencolDetalhado,
+        tipoDetalhes: pedido.tipoDetalhes,
+      };
+    });
 
     res.json(pedidosFormatados);
-
-
-
-
   } catch (error) {
     console.error(error);
     res.status(500).json({
@@ -323,6 +386,7 @@ app.get("/tabela-pedidos", async (req, res) => {
     });
   }
 });
+
 
 ////////////////////////////////////
 
