@@ -14,8 +14,6 @@ model pedido {
   quantidade       Int
   situacao         String
   horaInicio       DateTime?
-  horaPausa        DateTime?
-  horaReinicio     DateTime?
   horaFinal        DateTime?
   observacoes      String?
   tempoProduzindo  String?
@@ -27,6 +25,7 @@ model pedido {
   pausas           pausa[]
   tipoDetalhes     tipoPedido? @relation(name: "PedidoTipo")
 }
+
 
 
 model funcionario {
@@ -67,7 +66,7 @@ model pausa {
   id           Int      @id @default(autoincrement())
   pedidoCodigo Int
   horaPausa    DateTime
-  horaRetorno  DateTime
+  horaRetorno  DateTime?
 
   pedido       pedido   @relation(fields: [pedidoCodigo], references: [codigo], onDelete: Cascade)
 }

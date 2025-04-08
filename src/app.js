@@ -3,6 +3,7 @@ const app = express();
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 import cors from "cors";
+import cron from "node-cron";
 
 app.use(cors());
 app.use(express.json());
@@ -26,70 +27,66 @@ app.post("/iniciar-pedido/:codigo", async (req, res) => {
 });
 
 app.post("/pausar-pedido/:codigo", async (req, res) => {
-  const { codigo } = req.params;
+  const codigo = parseInt(req.params.codigo);
+  const agora = new Date();
 
   try {
-    // Verifica se o pedido existe
-    const pedido = await prisma.pedido.findUnique({
-      where: { codigo: Number(codigo) },
-    });
-
-    if (!pedido) {
-      return res
-        .status(404)
-        .json({ error: `Pedido com código ${codigo} não encontrado.` });
-    }
-
-    // Registra a hora de pausa
-    const horaPausa = new Date();
-
-    // Atualiza o pedido, marcando como pausado
-    const pedidoAtualizado = await prisma.pedido.update({
-      where: { codigo: Number(codigo) },
+    // Cria nova pausa
+    await prisma.pausa.create({
       data: {
-        horaPausa,
-        situacao: "Pausado",
+        horaPausa: new Date(),
+        horaRetorno: null,
+        pedido: {
+          connect: { codigo: codigo },
+        },
       },
+    });
+    
+    
+
+    // Atualiza situação do pedido
+    const pedidoAtualizado = await prisma.pedido.update({
+      where: { codigo },
+      data: { situacao: "Pausado" },
+      include: { pausas: true },
     });
 
     res.json(pedidoAtualizado);
   } catch (error) {
-    res
-      .status(500)
-      .json({ error: `Erro ao pausar o pedido: ${error.message}` });
+    console.error("Erro ao pausar pedido:", error);
+    res.status(500).json({ error: "Erro ao pausar pedido." });
   }
 });
 
 app.post("/reiniciar-pedido/:codigo", async (req, res) => {
-  const { codigo } = req.params;
+  const codigo = parseInt(req.params.codigo);
+  const agora = new Date();
 
   try {
-    // Verifica se o pedido existe
-    const pedido = await prisma.pedido.findUnique({
-      where: { codigo: Number(codigo) },
+    // Atualiza o último registro de pausa (sem horaRetorno ainda)
+    await prisma.pausa.updateMany({
+      where: {
+        pedidoCodigo: codigo,
+        horaRetorno: {
+          equals: null, // <- é isso que faltava!
+        },
+      },
+      data: {
+        horaRetorno: agora,
+      },
     });
 
-    if (!pedido) {
-      return res
-        .status(404)
-        .json({ error: `Pedido com código ${codigo} não encontrado.` });
-    }
-
-    // Registra a hora de reinício
-    const horaReinicio = new Date();
-
-    // Atualiza o pedido com a hora de reinício e o status como "Em andamento"
+    // Atualiza situação do pedido
     const pedidoAtualizado = await prisma.pedido.update({
-      where: { codigo: Number(codigo) },
-      data: {
-        horaReinicio,
-        situacao: "Em andamento",
-      },
+      where: { codigo },
+      data: { situacao: "Em andamento" },
+      include: { pausas: true },
     });
 
     res.json(pedidoAtualizado);
   } catch (error) {
-    res.status(500).json({ error: "Erro ao reiniciar o pedido." });
+    console.error("Erro ao reiniciar pedido:", error);
+    res.status(500).json({ error: "Erro ao reiniciar pedido." });
   }
 });
 
@@ -97,7 +94,6 @@ app.post("/finalizar-pedido/:codigo", async (req, res) => {
   const { codigo } = req.params;
 
   try {
-    // 1. Busca o pedido pelo código
     const pedido = await prisma.pedido.findUnique({
       where: { codigo: Number(codigo) },
     });
@@ -108,36 +104,41 @@ app.post("/finalizar-pedido/:codigo", async (req, res) => {
         .json({ error: `Pedido com código ${codigo} não encontrado.` });
     }
 
-    // 2. Hora de finalização agora
     const horaFinal = new Date();
 
-    // 3. Cálculo de tempoProduzindo (antes e depois da pausa)
-    let tempoProduzindoSegundos = 0;
+    // Busca todas as pausas associadas a esse pedido
+    const pausas = await prisma.pausa.findMany({
+      where: { pedidoCodigo: Number(codigo) },
+    });
 
-    if (pedido.horaPausa && pedido.horaReinicio) {
-      const antesDaPausa = (new Date(pedido.horaPausa) - new Date(pedido.horaInicio)) / 1000;
-      const depoisDoReinicio = (horaFinal - new Date(pedido.horaReinicio)) / 1000;
-      tempoProduzindoSegundos = Math.floor(antesDaPausa + depoisDoReinicio);
-    } else {
-      // Se não teve pausa, tempoProduzindo = horaFinal - horaInicio
-      tempoProduzindoSegundos = Math.floor((horaFinal - new Date(pedido.horaInicio)) / 1000);
-    }
+    // Soma do tempo total pausado (em milissegundos)
+    let totalPausaMs = 0;
 
-    // 4. Tempo total (sem considerar pausas)
-    const tempoTotalSegundos = Math.floor((horaFinal - new Date(pedido.horaInicio)) / 1000);
+    pausas.forEach((pausa) => {
+      if (pausa.horaRetorno) {
+        const inicio = new Date(pausa.horaPausa).getTime();
+        const fim = new Date(pausa.horaRetorno).getTime();
+        totalPausaMs += fim - inicio;
+      }
+    });
 
-    // 5. Função para formatar segundos em "hh:mm:ss"
-    const formatarDuracao = (segundos) => {
-      const h = String(Math.floor(segundos / 3600)).padStart(2, "0");
-      const m = String(Math.floor((segundos % 3600) / 60)).padStart(2, "0");
-      const s = String(segundos % 60).padStart(2, "0");
+    const horaInicioMs = new Date(pedido.horaInicio).getTime();
+    const horaFinalMs = horaFinal.getTime();
+
+    const tempoTotalMs = horaFinalMs - horaInicioMs;
+    const tempoProduzindoMs = tempoTotalMs - totalPausaMs;
+
+    const formatarDuracao = (ms) => {
+      const totalSegundos = Math.floor(ms / 1000);
+      const h = String(Math.floor(totalSegundos / 3600)).padStart(2, "0");
+      const m = String(Math.floor((totalSegundos % 3600) / 60)).padStart(2, "0");
+      const s = String(totalSegundos % 60).padStart(2, "0");
       return `${h}:${m}:${s}`;
     };
 
-    const tempoTotalFormatado = formatarDuracao(tempoTotalSegundos);
-    const tempoProduzindoFormatado = formatarDuracao(tempoProduzindoSegundos);
+    const tempoTotalFormatado = formatarDuracao(tempoTotalMs);
+    const tempoProduzindoFormatado = formatarDuracao(tempoProduzindoMs);
 
-    // 6. Atualiza o pedido no banco
     const pedidoFinalizado = await prisma.pedido.update({
       where: { codigo: Number(codigo) },
       data: {
@@ -148,13 +149,13 @@ app.post("/finalizar-pedido/:codigo", async (req, res) => {
       },
     });
 
-    // 7. Retorna o pedido finalizado
     res.json(pedidoFinalizado);
   } catch (error) {
     console.error("Erro ao finalizar pedido:", error);
     res.status(500).json({ error: "Erro ao finalizar o pedido." });
   }
 });
+
 
 app.post("/adicionar-pedido", async (req, res) => {
   const { codigo, tipo, quantidade, funcionarios, metragens } = req.body;
@@ -238,9 +239,21 @@ app.post("/adicionar-pedido", async (req, res) => {
   }
 });
 
+app.put('/atualizar-pedido/:codigoAntigo', async (req, res) => {
+  const { codigoAntigo } = req.params;
+  const dadosAtualizados = req.body;
 
+  try {
+    const pedido = await prisma.pedido.update({
+      where: { codigo: Number(codigoAntigo) },
+      data: dadosAtualizados,
+    });
 
-
+    res.json(pedido);
+  } catch (error) {
+    res.status(500).json({ error: "Erro ao atualizar o pedido." });
+  }
+});
 
 app.delete("/deletar-pedido/:codigo", async (req, res) => {
   const { codigo } = req.params;
@@ -310,6 +323,7 @@ app.get("/tabela-pedidos", async (req, res) => {
   try {
     const pedidos = await prisma.pedido.findMany({
       include: {
+        pausas: true,
         funcionarios: {
           include: {
             funcionario: {
@@ -568,6 +582,63 @@ app.delete("/deletar-maquinario/:id", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Erro ao deletar maquinário" });
+  }
+});
+
+
+cron.schedule('* * * * *', async () => {
+  const agora = new Date();
+  const hora = agora.getHours();
+  const minuto = agora.getMinutes();
+
+  const emHorarioDePausa =
+    (hora === 9 && minuto < 10) ||  // 09:00 até 09:09
+    (hora >= 12 && hora < 13) ||   // 12:00 até 12:59
+    hora >= 17;                    // qualquer hora depois das 17:00
+
+  if (!emHorarioDePausa) return;
+
+  try {
+    const pedidosAtivos = await prisma.pedido.findMany({
+      where: {
+        situacao: 'Em andamento',
+      },
+    });
+
+    for (const pedido of pedidosAtivos) {
+      const pausaAberta = await prisma.pausa.findFirst({
+        where: {
+          pedidoCodigo: pedido.codigo,
+          horaRetorno: null,
+        },
+      });
+
+      // Se já houver uma pausa em aberto, não cria outra
+      if (pausaAberta) {
+        console.log(`⏸️ Pedido ${pedido.codigo} já está pausado. Ignorado.`);
+        continue;
+      }
+
+      // Cria nova pausa
+      await prisma.pausa.create({
+        data: {
+          pedidoCodigo: pedido.codigo,
+          horaPausa: agora,
+        },
+      });
+
+      // Atualiza situação do pedido
+      await prisma.pedido.update({
+        where: { codigo: pedido.codigo },
+        data: {
+          situacao: 'Pausado',
+        },
+      });
+
+      console.log(`⏸️ Pedido ${pedido.codigo} pausado automaticamente às ${hora}:${String(minuto).padStart(2, '0')}`);
+    }
+  } catch (err) {
+    console.error('❌ Erro no cron de pausa:', err);
   }
 });
 
