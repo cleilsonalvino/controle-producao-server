@@ -586,17 +586,24 @@ app.delete("/deletar-maquinario/:id", async (req, res) => {
 });
 
 
+const cron = require('node-cron');
+
 cron.schedule('* * * * *', async () => {
-  const agora = new Date();
+  const agora = new Date(new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }));
   const hora = agora.getHours();
   const minuto = agora.getMinutes();
 
-  const emHorarioDePausa =
-    (hora === 9 && minuto < 10) ||  // 09:00 até 09:09
-    (hora >= 12 && hora < 13) ||   // 12:00 até 12:59
-    hora >= 17;                    // qualquer hora depois das 17:00
+  // Define se está dentro do horário de pausa
+  const dentroDoHorarioDePausa =
+    (hora === 9 && minuto < 10) ||   // Das 09:00 até 09:09
+    (hora === 12) ||                 // Das 12:00 até 12:59
+    (hora >= 17);                    // Das 17:00 em diante
 
-  if (!emHorarioDePausa) return;
+  console.log(`⏰ Verificação: ${hora}:${String(minuto).padStart(2, '0')} - Horário de pausa: ${dentroDoHorarioDePausa}`);
+
+  if (!dentroDoHorarioDePausa) {
+    return;
+  }
 
   try {
     const pedidosAtivos = await prisma.pedido.findMany({
@@ -604,6 +611,8 @@ cron.schedule('* * * * *', async () => {
         situacao: 'Em andamento',
       },
     });
+
+    console.log(`Pedidos em andamento encontrados: ${pedidosAtivos.length}`);
 
     for (const pedido of pedidosAtivos) {
       const pausaAberta = await prisma.pausa.findFirst({
@@ -613,13 +622,11 @@ cron.schedule('* * * * *', async () => {
         },
       });
 
-      // Se já houver uma pausa em aberto, não cria outra
       if (pausaAberta) {
         console.log(`⏸️ Pedido ${pedido.codigo} já está pausado. Ignorado.`);
         continue;
       }
 
-      // Cria nova pausa
       await prisma.pausa.create({
         data: {
           pedidoCodigo: pedido.codigo,
@@ -627,7 +634,6 @@ cron.schedule('* * * * *', async () => {
         },
       });
 
-      // Atualiza situação do pedido
       await prisma.pedido.update({
         where: { codigo: pedido.codigo },
         data: {
