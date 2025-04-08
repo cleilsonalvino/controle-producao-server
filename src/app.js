@@ -599,9 +599,9 @@ cron.schedule('* * * * *', async () => {
   } else if (hora === 12) {
     inicioFaixa = new Date(agora);
     inicioFaixa.setHours(12, 0, 0, 0);
-  } else if (hora >= 17) {
+  } else if (hora >= 17 && minuto < 21) {
     inicioFaixa = new Date(agora);
-    inicioFaixa.setHours(17, 0, 0, 0);
+    inicioFaixa.setHours(17, 20, 0, 0);
   }
 
   if (!inicioFaixa) return;
@@ -648,6 +648,8 @@ cron.schedule('* * * * *', async () => {
   } catch (err) {
     console.error('❌ Erro no cron de pausa:', err);
   }
+},{
+  timezone: "America/Sao_Paulo",
 });
 
 app.listen(3000, () => console.log("Servidor rodando!"));
