@@ -586,8 +586,6 @@ app.delete("/deletar-maquinario/:id", async (req, res) => {
 });
 
 
-const cron = require('node-cron');
-
 cron.schedule('* * * * *', async () => {
   const agora = new Date(new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }));
   const hora = agora.getHours();
