@@ -587,32 +587,38 @@ app.delete("/deletar-maquinario/:id", async (req, res) => {
 
 
 cron.schedule('* * * * *', async () => {
-  const agora = new Date(new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }));
+  const agora = new Date(); // já está no timezone do servidor
   const hora = agora.getHours();
   const minuto = agora.getMinutes();
 
-  // Define se está dentro do horário de pausa
-  const dentroDoHorarioDePausa =
-    (hora === 9 && minuto < 10) ||   // Das 09:00 até 09:09
-    (hora === 12) ||                 // Das 12:00 até 12:59
-    (hora >= 17);                    // Das 17:00 em diante
+  let inicioFaixa = null;
 
-  console.log(`⏰ Verificação: ${hora}:${String(minuto).padStart(2, '0')} - Horário de pausa: ${dentroDoHorarioDePausa}`);
-
-  if (!dentroDoHorarioDePausa) {
-    return;
+  if (hora === 9 && minuto < 10) {
+    inicioFaixa = new Date(agora);
+    inicioFaixa.setHours(9, 0, 0, 0);
+  } else if (hora === 12) {
+    inicioFaixa = new Date(agora);
+    inicioFaixa.setHours(12, 0, 0, 0);
+  } else if (hora >= 17) {
+    inicioFaixa = new Date(agora);
+    inicioFaixa.setHours(17, 0, 0, 0);
   }
+
+  if (!inicioFaixa) return;
 
   try {
     const pedidosAtivos = await prisma.pedido.findMany({
-      where: {
-        situacao: 'Em andamento',
-      },
+      where: { situacao: 'Em andamento' },
     });
 
-    console.log(`Pedidos em andamento encontrados: ${pedidosAtivos.length}`);
-
     for (const pedido of pedidosAtivos) {
+      const horaInicioPedido = new Date(pedido.horaInicio);
+
+      if (horaInicioPedido > inicioFaixa) {
+        console.log(`⏭️ Pedido ${pedido.codigo} começou depois do início da faixa.`);
+        continue;
+      }
+
       const pausaAberta = await prisma.pausa.findFirst({
         where: {
           pedidoCodigo: pedido.codigo,
@@ -621,25 +627,23 @@ cron.schedule('* * * * *', async () => {
       });
 
       if (pausaAberta) {
-        console.log(`⏸️ Pedido ${pedido.codigo} já está pausado. Ignorado.`);
+        console.log(`⏸️ Pedido ${pedido.codigo} já está pausado.`);
         continue;
       }
 
       await prisma.pausa.create({
         data: {
           pedidoCodigo: pedido.codigo,
-          horaPausa: agora,
+          horaPausa: inicioFaixa,
         },
       });
 
       await prisma.pedido.update({
         where: { codigo: pedido.codigo },
-        data: {
-          situacao: 'Pausado',
-        },
+        data: { situacao: 'Pausado' },
       });
 
-      console.log(`⏸️ Pedido ${pedido.codigo} pausado automaticamente às ${hora}:${String(minuto).padStart(2, '0')}`);
+      console.log(`⏸️ Pedido ${pedido.codigo} pausado às ${inicioFaixa.toLocaleTimeString()}`);
     }
   } catch (err) {
     console.error('❌ Erro no cron de pausa:', err);
