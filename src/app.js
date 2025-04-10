@@ -589,7 +589,6 @@ app.delete("/deletar-maquinario/:id", async (req, res) => {
 cron.schedule('* * * * *', async () => {
   const agora = new Date();
 
-  // Função utilitária pra criar um Date com hora/minuto específicos
   const criarHorario = (hora: number, minuto: number) => {
     const d = new Date(agora);
     d.setHours(hora, minuto, 0, 0);
@@ -603,20 +602,23 @@ cron.schedule('* * * * *', async () => {
   const faixaAlmocoFim = criarHorario(13, 0);
 
   const faixaTardeInicio = criarHorario(17, 20);
-  const faixaTardeFim = criarHorario(23, 59); // até o fim do dia
+  const faixaTardeFim = criarHorario(23, 59);
 
   let inicioFaixa: Date | null = null;
+  let fimFaixa: Date | null = null;
 
   if (agora >= faixaManhaInicio && agora < faixaManhaFim) {
     inicioFaixa = faixaManhaInicio;
+    fimFaixa = faixaManhaFim;
   } else if (agora >= faixaAlmocoInicio && agora < faixaAlmocoFim) {
     inicioFaixa = faixaAlmocoInicio;
+    fimFaixa = faixaAlmocoFim;
   } else if (agora >= faixaTardeInicio && agora <= faixaTardeFim) {
     inicioFaixa = faixaTardeInicio;
+    fimFaixa = faixaTardeFim;
   }
 
-  // Se não estiver em nenhuma faixa, sai do cron
-  if (!inicioFaixa) return;
+  if (!inicioFaixa || !fimFaixa) return;
 
   try {
     const pedidosAtivos = await prisma.pedido.findMany({
@@ -628,7 +630,7 @@ cron.schedule('* * * * *', async () => {
         const horaInicioPedido = new Date(pedido.horaInicio);
 
         if (horaInicioPedido > inicioFaixa) {
-          console.log(`⏭️ Pedido ${pedido.codigo} começou depois do início da faixa.`);
+          console.log(`⏭️ Pedido ${pedido.codigo} começou depois da faixa.`);
           continue;
         }
 
@@ -641,6 +643,21 @@ cron.schedule('* * * * *', async () => {
 
         if (pausaAberta) {
           console.log(`⏸️ Pedido ${pedido.codigo} já está pausado.`);
+          continue;
+        }
+
+        const jaFoiPausadoNessaFaixa = await prisma.pausa.findFirst({
+          where: {
+            pedidoCodigo: pedido.codigo,
+            horaPausa: {
+              gte: inicioFaixa,
+              lt: fimFaixa,
+            },
+          },
+        });
+
+        if (jaFoiPausadoNessaFaixa) {
+          console.log(`⏹️ Pedido ${pedido.codigo} já foi pausado nesta faixa.`);
           continue;
         }
 
