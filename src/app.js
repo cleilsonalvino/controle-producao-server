@@ -3,7 +3,7 @@ const app = express();
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 import cors from "cors";
-import cron from "node-cron";
+// import cron from "node-cron";
 
 app.use(cors());
 app.use(express.json());
@@ -586,86 +586,74 @@ app.delete("/deletar-maquinario/:id", async (req, res) => {
 });
 
 
-cron.schedule('* * * * *', async () => {
-  const agora = new Date();
+/* cron.schedule('* * * * *', async () => {
+const agora = new Date(); // já está no timezone do servidor
+const hora = agora.getHours();
+const minuto = agora.getMinutes();
 
-  const getInicioFaixa = (agora) => {
-    const hora = agora.getHours();
-    const minuto = agora.getMinutes();
+let inicioFaixa = null;
 
-    let faixa = null;
+if (hora === 9 && minuto < 10) {
+inicioFaixa = new Date(agora);
+inicioFaixa.setHours(9, 0, 0, 0);
+} else if (hora === 12) {
+inicioFaixa = new Date(agora);
+inicioFaixa.setHours(12, 0, 0, 0);
+} else if (hora >= 17 && minuto < 21) {
+inicioFaixa = new Date(agora);
+inicioFaixa.setHours(17, 20, 0, 0);
+}
 
-    if (hora === 9 && minuto < 10) {
-      faixa = new Date(agora);
-      faixa.setHours(9, 0, 0, 0);
-    } else if (hora === 12 && minuto < 10) {
-      faixa = new Date(agora);
-      faixa.setHours(12, 0, 0, 0);
-    } else if (hora === 17 && minuto < 30) {
-      faixa = new Date(agora);
-      faixa.setHours(17, 20, 0, 0);
-    }
+if (!inicioFaixa) return;
 
-    return faixa;
-  };
-
-  const inicioFaixa = getInicioFaixa(agora);
-  if (!inicioFaixa) return;
-
-  // Limite de 10 minutos para considerar a pausa válida
-  const fimFaixa = new Date(inicioFaixa.getTime() + 10 * 60 * 1000);
-  if (agora > fimFaixa) {
-    console.log(`⏱️ Fora da janela de pausa (${inicioFaixa.toLocaleTimeString()} até ${fimFaixa.toLocaleTimeString()})`);
-    return;
-  }
-
-  try {
-    const pedidosAtivos = await prisma.pedido.findMany({
-      where: { situacao: 'Em andamento' },
-    });
-
-    for (const pedido of pedidosAtivos) {
-      const horaInicioPedido = new Date(pedido.horaInicio);
-
-      if (horaInicioPedido > inicioFaixa) {
-        console.log(`⏭️ Pedido ${pedido.codigo} começou depois do início da faixa.`);
-        continue;
-      }
-
-      const pausaAberta = await prisma.pausa.findFirst({
-        where: {
-          pedidoCodigo: pedido.codigo,
-          horaRetorno: null,
-        },
-      });
-
-      if (pausaAberta) {
-        console.log(`⏸️ Pedido ${pedido.codigo} já está pausado.`);
-        continue;
-      }
-
-      await prisma.pausa.create({
-        data: {
-          pedidoCodigo: pedido.codigo,
-          horaPausa: inicioFaixa,
-        },
-      });
-
-      await prisma.pedido.update({
-        where: { codigo: pedido.codigo },
-        data: { situacao: 'Pausado' },
-      });
-
-      console.log(`⏸️ Pedido ${pedido.codigo} pausado às ${inicioFaixa.toLocaleTimeString()}`);
-    }
-  } catch (err) {
-    console.error('❌ Erro no cron de pausa:', err);
-  }
-
-}, {
-  timezone: "America/Sao_Paulo",
+try {
+const pedidosAtivos = await prisma.pedido.findMany({
+where: { situacao: 'Em andamento' },
 });
 
+for (const pedido of pedidosAtivos) {  
+  const horaInicioPedido = new Date(pedido.horaInicio);  
+
+  if (horaInicioPedido > inicioFaixa) {  
+    console.log(`⏭️ Pedido ${pedido.codigo} começou depois do início da faixa.`);  
+    continue;  
+  }  
+
+  const pausaAberta = await prisma.pausa.findFirst({  
+    where: {  
+      pedidoCodigo: pedido.codigo,  
+      horaRetorno: null,  
+    },  
+  });  
+
+  if (pausaAberta) {  
+    console.log(`⏸️ Pedido ${pedido.codigo} já está pausado.`);  
+    continue;  
+  }  
+
+  await prisma.pausa.create({  
+    data: {  
+      pedidoCodigo: pedido.codigo,  
+      horaPausa: inicioFaixa,  
+    },  
+  });  
+
+  await prisma.pedido.update({  
+    where: { codigo: pedido.codigo },  
+    data: { situacao: 'Pausado' },  
+  });  
+
+  console.log(`⏸️ Pedido ${pedido.codigo} pausado às ${inicioFaixa.toLocaleTimeString()}`);  
+}
+
+} catch (err) {
+console.error('❌ Erro no cron de pausa:', err);
+}
+},{
+timezone: "America/Sao_Paulo",
+});
+
+*/
 
 
 app.listen(3000, () => console.log("Servidor rodando!"));
