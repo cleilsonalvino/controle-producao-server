@@ -3,7 +3,7 @@ const app = express();
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 import cors from "cors";
-// import cron from "node-cron";
+import cron from "node-cron";
 
 app.use(cors());
 app.use(express.json());
