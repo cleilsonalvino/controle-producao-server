@@ -78,6 +78,23 @@ model tipoPedido {
   pedido       pedido  @relation(name: "PedidoTipo", fields: [pedidoCodigo], references: [codigo], onDelete: Cascade)
   metragens    Metragem[]
   lencol       Lencol? // <- Nova relação, pode ou não ter lencol
+  camisa       camisa[]
+  outrosTipos  outroTipo[]
+}
+
+model outroTipo {
+  id           Int     @id @default(autoincrement())
+  tipoPedidoId Int     @unique
+  tipo         String? // Exemplo: "Outros tipos de pedido"
+
+  tipoPedido   tipoPedido @relation(fields: [tipoPedidoId], references: [id], onDelete: Cascade)
+}
+
+model camisa {
+  id          Int        @id @default(autoincrement())
+  tipo        String     // Exemplo: "Camisa Social"
+  tipoPedido  tipoPedido @relation(fields: [tipoPedidoId], references: [id], onDelete: Cascade)
+  tipoPedidoId Int
 }
 
 model Metragem {
@@ -89,6 +106,7 @@ model Metragem {
 
 model Lencol {
   id                Int        @id @default(autoincrement())
+  tipo             String?     // Exemplo: "Lencol de Casal"
   quantidadeLencol  Int
   quantidadeFronha  Int
   quantidadeCortina Int?       // Cortina é opcional

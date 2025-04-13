@@ -156,9 +156,8 @@ app.post("/finalizar-pedido/:codigo", async (req, res) => {
   }
 });
 
-
 app.post("/adicionar-pedido", async (req, res) => {
-  const { codigo, tipo, quantidade, funcionarios, metragens } = req.body;
+  const { codigo, tipo, quantidade, funcionarios, tipoDetalhes } = req.body;
 
   try {
     if (!codigo || !tipo || !quantidade) {
@@ -178,27 +177,43 @@ app.post("/adicionar-pedido", async (req, res) => {
       },
     };
 
-    // Se for tipo PAINEL, cria metragens vinculadas
-    if (tipo === "PAINEL" && Array.isArray(metragens)) {
+    // Lógica para diferentes tipos de pedido
+    if (tipo === "PAINEL" && Array.isArray(tipoDetalhes?.metragens)) {
       dadosPedido.tipoDetalhes = {
         create: {
           metragens: {
-            create: metragens.map((valor) => ({ valor })),
+            create: tipoDetalhes.metragens.map((valor) => ({ valor })),
           },
         },
       };
     }
 
-    // Se for tipo LENÇOL, calcula fronhas e cortinas no backend
     if (tipo === "LENÇOL") {
       const qtdLencol = parseInt(quantidade);
-      const qtdFronha = qtdLencol * 2;
-      const qtdCortina = qtdLencol * 2;
-    
+      let qtdFronha = qtdLencol * 2;  // Por padrão, a quantidade de fronhas será o dobro dos lençóis
+      let qtdCortina = 0; // Cortinas inicialmente são 0
+
+      // Validação e ajuste para diferentes tipos de lençol
+      if (tipoDetalhes?.tipoLencol === "LENÇOL SOLTEIRO") {
+        qtdFronha = qtdLencol; // No caso de lençol solteiro, as fronhas são iguais à quantidade de lençóis
+        qtdCortina = 0; // Não tem cortina para lençol solteiro
+      } else if (tipoDetalhes?.tipoLencol === "LENÇOL CASAL") {
+        qtdFronha = qtdLencol * 2; // Para lençol casal, as fronhas são o dobro
+        qtdCortina = 0; // Não tem cortina para lençol casal
+      } else if (tipoDetalhes?.tipoLencol === "KIT SOLTEIRO") {
+        qtdFronha = qtdLencol; // No kit solteiro, as fronhas são iguais à quantidade de lençóis
+        qtdCortina = qtdLencol * 2; // A quantidade de cortinas é o dobro dos lençóis
+      } else if (tipoDetalhes?.tipoLencol === "KIT CASAL") {
+        qtdFronha = qtdLencol * 2; // No kit casal, as fronhas são o dobro dos lençóis
+        qtdCortina = qtdLencol * 2; // A quantidade de cortinas é o dobro dos lençóis
+      }
+
+      // Criando os detalhes do pedido com as quantidades ajustadas
       dadosPedido.tipoDetalhes = {
         create: {
           lencol: {
             create: {
+              tipo: tipoDetalhes?.tipoLencol,
               quantidadeLencol: qtdLencol,
               quantidadeFronha: qtdFronha,
               quantidadeCortina: qtdCortina,
@@ -207,7 +222,30 @@ app.post("/adicionar-pedido", async (req, res) => {
         },
       };
     }
-    
+
+    if (tipo === "CAMISA" && tipoDetalhes?.tipoCamisa) {
+      dadosPedido.tipoDetalhes = {
+        create: {
+          camisa: {
+            create: {
+              tipo: tipoDetalhes.tipoCamisa,
+            },
+          },
+        },
+      };
+    }
+
+    if (tipo === "OUTROS" && tipoDetalhes?.tipoOutros) {
+      dadosPedido.tipoDetalhes = {
+        create: {
+          outrosTipos: {
+            create: {
+              tipo: tipoDetalhes.tipoOutros,
+            },
+          },
+        },
+      };
+    }
 
     const novoPedido = await prisma.pedido.create({
       data: dadosPedido,
@@ -218,6 +256,9 @@ app.post("/adicionar-pedido", async (req, res) => {
         tipoDetalhes: {
           include: {
             metragens: true,
+            lencol: true,
+            camisa: true,
+            outrosTipos: true,
           },
         },
       },
@@ -238,6 +279,8 @@ app.post("/adicionar-pedido", async (req, res) => {
     });
   }
 });
+
+
 
 app.put('/atualizar-pedido/:codigoAntigo', async (req, res) => {
   const { codigoAntigo } = req.params;
@@ -348,6 +391,8 @@ app.get("/tabela-pedidos", async (req, res) => {
           include: {
             metragens: true,
             lencol: true,
+            camisa: true,
+            outrosTipos: true,
           },
         },
       },
