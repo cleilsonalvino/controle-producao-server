@@ -280,6 +280,22 @@ app.post("/adicionar-pedido", async (req, res) => {
   }
 });
 
+app.patch('/observacao-pedido/:codigo', async (req, res) => {
+  const { codigo } = req.params;
+  const { observacao } = req.body;
+
+  try {
+    const pedidoAtualizado = await prisma.pedido.update({
+      where: { codigo: parseInt(codigo) },
+      data: { observacoes: observacao },
+    });
+
+    res.json(pedidoAtualizado);
+  } catch (error) {
+    console.error("Erro ao adicionar observação:", error);
+    res.status(500).json({ error: "Erro ao adicionar observação" });
+  }
+});
 
 
 app.put('/atualizar-pedido/:codigoAntigo', async (req, res) => {
@@ -378,7 +394,6 @@ app.get("/tabela-pedidos", async (req, res) => {
           },
         },
         maquinarios: {
-          take: 1,
           include: {
             maquinario: {
               select: {
@@ -515,70 +530,123 @@ app.post("/adicionar-maquinario", async (req, res) => {
 
 app.post("/vincular-maquinario/:codigo", async (req, res) => {
   const { codigo } = req.params;
-  const { maquinarioId } = req.body;
+  const { maquinarioIds } = req.body; // <- agora espera array
 
   try {
-    // Validações
     const parsedCodigo = parseInt(codigo);
-    const parsedMaquinarioId = parseInt(maquinarioId);
-    
-    if (isNaN(parsedCodigo) || isNaN(parsedMaquinarioId)) {
-      return res.status(400).json({ error: "IDs devem ser números válidos" });
+    if (isNaN(parsedCodigo)) {
+      return res.status(400).json({ error: "Código do pedido inválido" });
     }
 
-    // Verifica se os registros existem
-    const [pedidoExistente, maquinarioExistente] = await Promise.all([
-      prisma.pedido.findUnique({ where: { codigo: parsedCodigo } }),
-      prisma.maquinario.findUnique({ where: { id: parsedMaquinarioId } })
-    ]);
+    if (!Array.isArray(maquinarioIds) || maquinarioIds.length === 0) {
+      return res.status(400).json({ error: "Você deve enviar uma lista de IDs de maquinários" });
+    }
+
+    // Verifica se o pedido existe
+    const pedidoExistente = await prisma.pedido.findUnique({ where: { codigo: parsedCodigo } });
+    if (!pedidoExistente) {
+      return res.status(404).json({ error: "Pedido não encontrado" });
+    }
+
+    // Filtra apenas os maquinários válidos
+    const maquinariosValidos = await prisma.maquinario.findMany({
+      where: {
+        id: {
+          in: maquinarioIds.map(Number),
+        },
+      },
+    });
+
+    if (maquinariosValidos.length === 0) {
+      return res.status(404).json({ error: "Nenhum maquinário válido encontrado" });
+    }
+
+    // Cria vínculos evitando duplicados
+    const vinculosCriados = [];
+
+    for (const maquinario of maquinariosValidos) {
+      const vinculoExistente = await prisma.pedidoMaquinario.findUnique({
+        where: {
+          pedidoCodigo_maquinarioId: {
+            pedidoCodigo: parsedCodigo,
+            maquinarioId: maquinario.id,
+          },
+        },
+      });
+
+      if (!vinculoExistente) {
+        const novoVinculo = await prisma.pedidoMaquinario.create({
+          data: {
+            pedidoCodigo: parsedCodigo,
+            maquinarioId: maquinario.id,
+          },
+        });
+
+        vinculosCriados.push(novoVinculo);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `${vinculosCriados.length} maquinário(s) vinculados com sucesso`,
+      quantidadeVinculos: vinculosCriados.length,
+    });
+
+  } catch (error) {
+    console.error("Erro ao vincular maquinários:", error);
+    res.status(500).json({ error: "Erro interno ao vincular maquinários" });
+  }
+});
+
+app.put("/editar-maquinarios/:codigo", async (req, res) => {
+  const { codigo } = req.params;
+  const { maquinarioIds } = req.body;
+
+  if (!Array.isArray(maquinarioIds)) {
+    return res.status(400).json({ error: "maquinarioIds deve ser um array de IDs" });
+  }
+
+  const parsedCodigo = parseInt(codigo);
+  const parsedMaquinarioIds = maquinarioIds.map(Number).filter(id => !isNaN(id));
+
+  try {
+    const pedidoExistente = await prisma.pedido.findUnique({
+      where: { codigo: parsedCodigo },
+    });
 
     if (!pedidoExistente) {
       return res.status(404).json({ error: "Pedido não encontrado" });
     }
-    if (!maquinarioExistente) {
-      return res.status(404).json({ error: "Maquinário não encontrado" });
-    }
 
-    // Verifica se o vínculo já existe
-    const vinculoExistente = await prisma.pedidoMaquinario.findUnique({
-      where: {
-        pedidoCodigo_maquinarioId: {
-          pedidoCodigo: parsedCodigo,
-          maquinarioId: parsedMaquinarioId
-        }
-      }
+    // Deleta todos os vínculos anteriores
+    await prisma.pedidoMaquinario.deleteMany({
+      where: { pedidoCodigo: parsedCodigo },
     });
 
-    if (vinculoExistente) {
-      return res.status(400).json({ error: "Este maquinário já está vinculado ao pedido" });
-    }
-
-    // Cria o vínculo
-    const novoVinculo = await prisma.pedidoMaquinario.create({
-      data: {
-        pedidoCodigo: parsedCodigo,
-        maquinarioId: parsedMaquinarioId
-      },
-      include: {
-        maquinario: {
-          select: {
-            nome: true
-          }
-        }
-      }
-    });
+    // Cria os novos vínculos
+    const novosVinculos = await Promise.all(
+      parsedMaquinarioIds.map((id) =>
+        prisma.pedidoMaquinario.create({
+          data: {
+            pedidoCodigo: parsedCodigo,
+            maquinarioId: id,
+          },
+        })
+      )
+    );
 
     res.json({
       success: true,
-      message: "Maquinário vinculado com sucesso",
-      maquinario: novoVinculo.maquinario.nome
+      message: "Maquinários atualizados com sucesso",
+      quantidade: novosVinculos.length,
     });
 
   } catch (error) {
-    console.error("Erro ao vincular maquinário:", error);
-    res.status(500).json({ error: "Erro interno ao vincular maquinário" });
+    console.error("Erro ao editar maquinários:", error);
+    res.status(500).json({ error: "Erro interno ao editar maquinários" });
   }
 });
+
 
 app.get("/maquinarios", async (req, res) => {
   try {
