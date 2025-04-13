@@ -3,7 +3,7 @@ const app = express();
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 import cors from "cors";
-// import cron from "node-cron";
+import cron from "node-cron";
 
 app.use(cors());
 app.use(express.json());
@@ -586,20 +586,20 @@ app.delete("/deletar-maquinario/:id", async (req, res) => {
 });
 
 
-/* cron.schedule('* * * * *', async () => {
+cron.schedule('* * * * *', async () => {
 const agora = new Date(); // já está no timezone do servidor
 const hora = agora.getHours();
 const minuto = agora.getMinutes();
 
 let inicioFaixa = null;
 
-if (hora === 9 && minuto < 10) {
+if (hora === 9 && minuto < 11) {
 inicioFaixa = new Date(agora);
 inicioFaixa.setHours(9, 0, 0, 0);
 } else if (hora === 12) {
 inicioFaixa = new Date(agora);
 inicioFaixa.setHours(12, 0, 0, 0);
-} else if (hora >= 17 && minuto < 21) {
+} else if (hora === 17 && minuto === 20) {
 inicioFaixa = new Date(agora);
 inicioFaixa.setHours(17, 20, 0, 0);
 }
@@ -652,8 +652,6 @@ console.error('❌ Erro no cron de pausa:', err);
 },{
 timezone: "America/Sao_Paulo",
 });
-
-*/
 
 
 app.listen(3000, () => console.log("Servidor rodando!"));
