@@ -3,7 +3,7 @@ const app = express();
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 import cors from "cors";
-import cron from "node-cron";
+//import cron from "node-cron";
 
 app.use(cors());
 app.use(express.json());
@@ -156,9 +156,8 @@ app.post("/finalizar-pedido/:codigo", async (req, res) => {
   }
 });
 
-
 app.post("/adicionar-pedido", async (req, res) => {
-  const { codigo, tipo, quantidade, funcionarios, metragens } = req.body;
+  const { codigo, tipo, quantidade, funcionarios, tipoDetalhes } = req.body;
 
   try {
     if (!codigo || !tipo || !quantidade) {
@@ -178,27 +177,43 @@ app.post("/adicionar-pedido", async (req, res) => {
       },
     };
 
-    // Se for tipo PAINEL, cria metragens vinculadas
-    if (tipo === "PAINEL" && Array.isArray(metragens)) {
+    // Lógica para diferentes tipos de pedido
+    if (tipo === "PAINEL" && Array.isArray(tipoDetalhes?.metragens)) {
       dadosPedido.tipoDetalhes = {
         create: {
           metragens: {
-            create: metragens.map((valor) => ({ valor })),
+            create: tipoDetalhes.metragens.map((valor) => ({ valor })),
           },
         },
       };
     }
 
-    // Se for tipo LENÇOL, calcula fronhas e cortinas no backend
     if (tipo === "LENÇOL") {
       const qtdLencol = parseInt(quantidade);
-      const qtdFronha = qtdLencol * 2;
-      const qtdCortina = qtdLencol * 2;
-    
+      let qtdFronha = qtdLencol * 2;  // Por padrão, a quantidade de fronhas será o dobro dos lençóis
+      let qtdCortina = 0; // Cortinas inicialmente são 0
+
+      // Validação e ajuste para diferentes tipos de lençol
+      if (tipoDetalhes?.tipoLencol === "LENÇOL SOLTEIRO") {
+        qtdFronha = qtdLencol; // No caso de lençol solteiro, as fronhas são iguais à quantidade de lençóis
+        qtdCortina = 0; // Não tem cortina para lençol solteiro
+      } else if (tipoDetalhes?.tipoLencol === "LENÇOL CASAL") {
+        qtdFronha = qtdLencol * 2; // Para lençol casal, as fronhas são o dobro
+        qtdCortina = 0; // Não tem cortina para lençol casal
+      } else if (tipoDetalhes?.tipoLencol === "KIT SOLTEIRO") {
+        qtdFronha = qtdLencol; // No kit solteiro, as fronhas são iguais à quantidade de lençóis
+        qtdCortina = qtdLencol * 2; // A quantidade de cortinas é o dobro dos lençóis
+      } else if (tipoDetalhes?.tipoLencol === "KIT CASAL") {
+        qtdFronha = qtdLencol * 2; // No kit casal, as fronhas são o dobro dos lençóis
+        qtdCortina = qtdLencol * 2; // A quantidade de cortinas é o dobro dos lençóis
+      }
+
+      // Criando os detalhes do pedido com as quantidades ajustadas
       dadosPedido.tipoDetalhes = {
         create: {
           lencol: {
             create: {
+              tipo: tipoDetalhes?.tipoLencol,
               quantidadeLencol: qtdLencol,
               quantidadeFronha: qtdFronha,
               quantidadeCortina: qtdCortina,
@@ -207,7 +222,30 @@ app.post("/adicionar-pedido", async (req, res) => {
         },
       };
     }
-    
+
+    if (tipo === "CAMISA" && tipoDetalhes?.tipoCamisa) {
+      dadosPedido.tipoDetalhes = {
+        create: {
+          camisa: {
+            create: {
+              tipo: tipoDetalhes.tipoCamisa,
+            },
+          },
+        },
+      };
+    }
+
+    if (tipo === "OUTROS" && tipoDetalhes?.tipoOutros) {
+      dadosPedido.tipoDetalhes = {
+        create: {
+          outrosTipos: {
+            create: {
+              tipo: tipoDetalhes.tipoOutros,
+            },
+          },
+        },
+      };
+    }
 
     const novoPedido = await prisma.pedido.create({
       data: dadosPedido,
@@ -218,6 +256,9 @@ app.post("/adicionar-pedido", async (req, res) => {
         tipoDetalhes: {
           include: {
             metragens: true,
+            lencol: true,
+            camisa: true,
+            outrosTipos: true,
           },
         },
       },
@@ -238,6 +279,24 @@ app.post("/adicionar-pedido", async (req, res) => {
     });
   }
 });
+
+app.patch('/observacao-pedido/:codigo', async (req, res) => {
+  const { codigo } = req.params;
+  const { observacao } = req.body;
+
+  try {
+    const pedidoAtualizado = await prisma.pedido.update({
+      where: { codigo: parseInt(codigo) },
+      data: { observacoes: observacao },
+    });
+
+    res.json(pedidoAtualizado);
+  } catch (error) {
+    console.error("Erro ao adicionar observação:", error);
+    res.status(500).json({ error: "Erro ao adicionar observação" });
+  }
+});
+
 
 app.put('/atualizar-pedido/:codigoAntigo', async (req, res) => {
   const { codigoAntigo } = req.params;
@@ -335,7 +394,6 @@ app.get("/tabela-pedidos", async (req, res) => {
           },
         },
         maquinarios: {
-          take: 1,
           include: {
             maquinario: {
               select: {
@@ -348,6 +406,8 @@ app.get("/tabela-pedidos", async (req, res) => {
           include: {
             metragens: true,
             lencol: true,
+            camisa: true,
+            outrosTipos: true,
           },
         },
       },
@@ -470,70 +530,123 @@ app.post("/adicionar-maquinario", async (req, res) => {
 
 app.post("/vincular-maquinario/:codigo", async (req, res) => {
   const { codigo } = req.params;
-  const { maquinarioId } = req.body;
+  const { maquinarioIds } = req.body; // <- agora espera array
 
   try {
-    // Validações
     const parsedCodigo = parseInt(codigo);
-    const parsedMaquinarioId = parseInt(maquinarioId);
-    
-    if (isNaN(parsedCodigo) || isNaN(parsedMaquinarioId)) {
-      return res.status(400).json({ error: "IDs devem ser números válidos" });
+    if (isNaN(parsedCodigo)) {
+      return res.status(400).json({ error: "Código do pedido inválido" });
     }
 
-    // Verifica se os registros existem
-    const [pedidoExistente, maquinarioExistente] = await Promise.all([
-      prisma.pedido.findUnique({ where: { codigo: parsedCodigo } }),
-      prisma.maquinario.findUnique({ where: { id: parsedMaquinarioId } })
-    ]);
+    if (!Array.isArray(maquinarioIds) || maquinarioIds.length === 0) {
+      return res.status(400).json({ error: "Você deve enviar uma lista de IDs de maquinários" });
+    }
+
+    // Verifica se o pedido existe
+    const pedidoExistente = await prisma.pedido.findUnique({ where: { codigo: parsedCodigo } });
+    if (!pedidoExistente) {
+      return res.status(404).json({ error: "Pedido não encontrado" });
+    }
+
+    // Filtra apenas os maquinários válidos
+    const maquinariosValidos = await prisma.maquinario.findMany({
+      where: {
+        id: {
+          in: maquinarioIds.map(Number),
+        },
+      },
+    });
+
+    if (maquinariosValidos.length === 0) {
+      return res.status(404).json({ error: "Nenhum maquinário válido encontrado" });
+    }
+
+    // Cria vínculos evitando duplicados
+    const vinculosCriados = [];
+
+    for (const maquinario of maquinariosValidos) {
+      const vinculoExistente = await prisma.pedidoMaquinario.findUnique({
+        where: {
+          pedidoCodigo_maquinarioId: {
+            pedidoCodigo: parsedCodigo,
+            maquinarioId: maquinario.id,
+          },
+        },
+      });
+
+      if (!vinculoExistente) {
+        const novoVinculo = await prisma.pedidoMaquinario.create({
+          data: {
+            pedidoCodigo: parsedCodigo,
+            maquinarioId: maquinario.id,
+          },
+        });
+
+        vinculosCriados.push(novoVinculo);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `${vinculosCriados.length} maquinário(s) vinculados com sucesso`,
+      quantidadeVinculos: vinculosCriados.length,
+    });
+
+  } catch (error) {
+    console.error("Erro ao vincular maquinários:", error);
+    res.status(500).json({ error: "Erro interno ao vincular maquinários" });
+  }
+});
+
+app.put("/editar-maquinarios/:codigo", async (req, res) => {
+  const { codigo } = req.params;
+  const { maquinarioIds } = req.body;
+
+  if (!Array.isArray(maquinarioIds)) {
+    return res.status(400).json({ error: "maquinarioIds deve ser um array de IDs" });
+  }
+
+  const parsedCodigo = parseInt(codigo);
+  const parsedMaquinarioIds = maquinarioIds.map(Number).filter(id => !isNaN(id));
+
+  try {
+    const pedidoExistente = await prisma.pedido.findUnique({
+      where: { codigo: parsedCodigo },
+    });
 
     if (!pedidoExistente) {
       return res.status(404).json({ error: "Pedido não encontrado" });
     }
-    if (!maquinarioExistente) {
-      return res.status(404).json({ error: "Maquinário não encontrado" });
-    }
 
-    // Verifica se o vínculo já existe
-    const vinculoExistente = await prisma.pedidoMaquinario.findUnique({
-      where: {
-        pedidoCodigo_maquinarioId: {
-          pedidoCodigo: parsedCodigo,
-          maquinarioId: parsedMaquinarioId
-        }
-      }
+    // Deleta todos os vínculos anteriores
+    await prisma.pedidoMaquinario.deleteMany({
+      where: { pedidoCodigo: parsedCodigo },
     });
 
-    if (vinculoExistente) {
-      return res.status(400).json({ error: "Este maquinário já está vinculado ao pedido" });
-    }
-
-    // Cria o vínculo
-    const novoVinculo = await prisma.pedidoMaquinario.create({
-      data: {
-        pedidoCodigo: parsedCodigo,
-        maquinarioId: parsedMaquinarioId
-      },
-      include: {
-        maquinario: {
-          select: {
-            nome: true
-          }
-        }
-      }
-    });
+    // Cria os novos vínculos
+    const novosVinculos = await Promise.all(
+      parsedMaquinarioIds.map((id) =>
+        prisma.pedidoMaquinario.create({
+          data: {
+            pedidoCodigo: parsedCodigo,
+            maquinarioId: id,
+          },
+        })
+      )
+    );
 
     res.json({
       success: true,
-      message: "Maquinário vinculado com sucesso",
-      maquinario: novoVinculo.maquinario.nome
+      message: "Maquinários atualizados com sucesso",
+      quantidade: novosVinculos.length,
     });
 
   } catch (error) {
-    console.error("Erro ao vincular maquinário:", error);
-    res.status(500).json({ error: "Erro interno ao vincular maquinário" });
+    console.error("Erro ao editar maquinários:", error);
+    res.status(500).json({ error: "Erro interno ao editar maquinários" });
   }
 });
+
 
 app.get("/maquinarios", async (req, res) => {
   try {
@@ -586,7 +699,7 @@ app.delete("/deletar-maquinario/:id", async (req, res) => {
 });
 
 
-cron.schedule('* * * * *', async () => {
+/* cron.schedule('* * * * *', async () => {
 const agora = new Date(); // já está no timezone do servidor
 const hora = agora.getHours();
 const minuto = agora.getMinutes();
@@ -652,6 +765,7 @@ console.error('❌ Erro no cron de pausa:', err);
 },{
 timezone: "America/Sao_Paulo",
 });
+*/
 
 
 app.listen(3000, () => console.log("Servidor rodando!"));
