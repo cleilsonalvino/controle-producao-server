@@ -706,11 +706,11 @@ cron.schedule('* * * * *', async () => {
 
   let inicioFaixa = null;
 
-  // Define a faixa de pausa
+  // Define a faixa de pausa (9:00, 12:00, 17:20)
   if (hora === 9 && minuto === 0) {
     inicioFaixa = new Date(agora);
     inicioFaixa.setHours(9, 0, 0, 0);
-  } else if (hora === 12) {
+  } else if (hora === 12 && minuto === 0) {
     inicioFaixa = new Date(agora);
     inicioFaixa.setHours(12, 0, 0, 0);
   } else if (hora === 17 && minuto === 20) {
@@ -718,7 +718,7 @@ cron.schedule('* * * * *', async () => {
     inicioFaixa.setHours(17, 20, 0, 0);
   }
 
-  if (!inicioFaixa) return;
+  if (!inicioFaixa) return; // Só continua se o horário for um dos específicos
 
   try {
     // Busca todos os pedidos em andamento
@@ -727,40 +727,36 @@ cron.schedule('* * * * *', async () => {
     });
 
     for (const pedido of pedidosAtivos) {
-      const horaInicioPedido = new Date(pedido.horaInicio);
+      // Verifica se o pedido está em andamento, sem verificar a hora de início
 
-      // Se começou antes ou exatamente no início da faixa, deve ser pausado
-      if (horaInicioPedido <= inicioFaixa) {
-        const pausaAberta = await prisma.pausa.findFirst({
-          where: {
-            pedidoCodigo: pedido.codigo,
-            horaRetorno: null,
-          },
-        });
+      // Verifica se já existe uma pausa aberta
+      const pausaAberta = await prisma.pausa.findFirst({
+        where: {
+          pedidoCodigo: pedido.codigo,
+          horaRetorno: null, // Verifica se já existe uma pausa aberta
+        },
+      });
 
-        if (pausaAberta) {
-          console.log(`⏸️ Pedido ${pedido.codigo} já está pausado.`);
-          continue;
-        }
-
-        // Cria a pausa
-        await prisma.pausa.create({
-          data: {
-            pedidoCodigo: pedido.codigo,
-            horaPausa: inicioFaixa,
-          },
-        });
-
-        // Atualiza o status para "Pausado"
-        await prisma.pedido.update({
-          where: { codigo: pedido.codigo },
-          data: { situacao: 'Pausado' },
-        });
-
-        console.log(`⏸️ Pedido ${pedido.codigo} pausado automaticamente às ${inicioFaixa.toLocaleTimeString()}`);
-      } else {
-        console.log(`⏭️ Pedido ${pedido.codigo} começou após o início da faixa, ignorado.`);
+      if (pausaAberta) {
+        console.log(`⏸️ Pedido ${pedido.codigo} já está pausado.`);
+        continue;
       }
+
+      // Cria a pausa para o pedido
+      await prisma.pausa.create({
+        data: {
+          pedidoCodigo: pedido.codigo,
+          horaPausa: inicioFaixa,
+        },
+      });
+
+      // Atualiza o status do pedido para "Pausado"
+      await prisma.pedido.update({
+        where: { codigo: pedido.codigo },
+        data: { situacao: 'Pausado' },
+      });
+
+      console.log(`⏸️ Pedido ${pedido.codigo} pausado automaticamente às ${inicioFaixa.toLocaleTimeString()}`);
     }
 
   } catch (err) {
@@ -769,6 +765,7 @@ cron.schedule('* * * * *', async () => {
 }, {
   timezone: "America/Sao_Paulo",
 });
+
 
 
 app.listen(3000, () => console.log("Servidor rodando!"));
