@@ -8,108 +8,98 @@ datasource db {
 }
 
 model pedido {
-  codigo           Int       @id @unique
-  dataAtual        DateTime
-  tipo             String
-  quantidade       Int
-  situacao         String
-  horaInicio       DateTime?
-  horaFinal        DateTime?
-  observacoes      String?
-  tempoProduzindo  String?
-  tempoTotal       String?
-
-  // Relações
-  maquinarios      pedidoMaquinario[]
-  funcionarios     funcionarioPedido[]
-  pausas           pausa[]
-  tipoDetalhes     tipoPedido? @relation(name: "PedidoTipo")
+  codigo          Int                 @id @unique
+  dataAtual       DateTime
+  tipo            String
+  quantidade      Int
+  horaInicio      DateTime?
+  horaFinal       DateTime?
+  observacoes     String?
+  situacao        String
+  tempoProduzindo String?
+  tempoTotal      String?
+  funcionarios    funcionarioPedido[]
+  pausas          pausa[]
+  maquinarios     pedidoMaquinario[]
+  tipoDetalhes    tipoPedido?         @relation("PedidoTipo")
 }
 
-
-
 model funcionario {
-  id         Int    @id @default(autoincrement())
-  nome       String @unique
-  setor      String
-
-  pedidos    funcionarioPedido[]
+  id      Int                 @id @default(autoincrement())
+  nome    String              @unique
+  setor   String
+  pedidos funcionarioPedido[]
 }
 
 model maquinario {
-  id         Int      @id @default(autoincrement())
-  nome       String   @unique
-  pedidos    pedidoMaquinario[]
+  id      Int                @id @default(autoincrement())
+  nome    String             @unique
+  pedidos pedidoMaquinario[]
 }
 
 model pedidoMaquinario {
-  pedidoCodigo   Int
-  maquinarioId   Int
-
-  pedido      pedido      @relation(fields: [pedidoCodigo], references: [codigo], onDelete: Cascade)
-  maquinario  maquinario  @relation(fields: [maquinarioId], references: [id])
+  pedidoCodigo Int
+  maquinarioId Int
+  maquinario   maquinario @relation(fields: [maquinarioId], references: [id])
+  pedido       pedido     @relation(fields: [pedidoCodigo], references: [codigo], onDelete: Cascade)
 
   @@id([pedidoCodigo, maquinarioId])
 }
 
 model funcionarioPedido {
-  pedidoCodigo   Int
-  funcionarioId  Int
-
-  pedido      pedido      @relation(fields: [pedidoCodigo], references: [codigo], onDelete: Cascade)
-  funcionario funcionario @relation(fields: [funcionarioId], references: [id])
+  pedidoCodigo  Int
+  funcionarioId Int
+  funcionario   funcionario @relation(fields: [funcionarioId], references: [id])
+  pedido        pedido      @relation(fields: [pedidoCodigo], references: [codigo], onDelete: Cascade)
 
   @@id([pedidoCodigo, funcionarioId])
 }
 
 model pausa {
-  id           Int      @id @default(autoincrement())
+  id           Int       @id @default(autoincrement())
   pedidoCodigo Int
   horaPausa    DateTime
   horaRetorno  DateTime?
-
-  pedido       pedido   @relation(fields: [pedidoCodigo], references: [codigo], onDelete: Cascade)
+  pedido       pedido    @relation(fields: [pedidoCodigo], references: [codigo], onDelete: Cascade)
 }
 
 model tipoPedido {
-  id           Int     @id @default(autoincrement())
-  pedidoCodigo Int     @unique
-
-  pedido       pedido  @relation(name: "PedidoTipo", fields: [pedidoCodigo], references: [codigo], onDelete: Cascade)
+  id           Int        @id @default(autoincrement())
+  pedidoCodigo Int        @unique
+  lencol       Lencol?
   metragens    Metragem[]
-  lencol       Lencol? // <- Nova relação, pode ou não ter lencol
   camisa       camisa[]
-  outrosTipos  outroTipo[]
+  outrosTipos  outroTipo?
+  pedido       pedido     @relation("PedidoTipo", fields: [pedidoCodigo], references: [codigo], onDelete: Cascade)
 }
 
 model outroTipo {
-  id           Int     @id @default(autoincrement())
-  tipoPedidoId Int     @unique
-  tipo         String? // Exemplo: "Outros tipos de pedido"
-
+  id           Int        @id @default(autoincrement())
+  tipoPedidoId Int        @unique
+  tipo         String?
   tipoPedido   tipoPedido @relation(fields: [tipoPedidoId], references: [id], onDelete: Cascade)
 }
 
 model camisa {
-  id          Int        @id @default(autoincrement())
-  tipo        String     // Exemplo: "Camisa Social"
-  tipoPedido  tipoPedido @relation(fields: [tipoPedidoId], references: [id], onDelete: Cascade)
+  id           Int        @id @default(autoincrement())
+  tipo         String
   tipoPedidoId Int
+  tipoPedido   tipoPedido @relation(fields: [tipoPedidoId], references: [id], onDelete: Cascade)
 }
 
 model Metragem {
-  id          Int        @id @default(autoincrement())
-  valor       String     // Exemplo: "1,33 x 1,33"
-  tipoPedido  tipoPedido @relation(fields: [tipoPedidoId], references: [id], onDelete: Cascade)
+  id           Int        @id @default(autoincrement())
+  valor        String
   tipoPedidoId Int
+  tipoPedido   tipoPedido @relation(fields: [tipoPedidoId], references: [id], onDelete: Cascade)
 }
 
 model Lencol {
   id                Int        @id @default(autoincrement())
-  tipo             String?     // Exemplo: "Lencol de Casal"
   quantidadeLencol  Int
   quantidadeFronha  Int
-  quantidadeCortina Int?       // Cortina é opcional
-  tipoPedido        tipoPedido @relation(fields: [tipoPedidoId], references: [id], onDelete: Cascade)
+  quantidadeCortina Int?
   tipoPedidoId      Int        @unique
+  tipo              String?
+  tipoPedido        tipoPedido @relation(fields: [tipoPedidoId], references: [id], onDelete: Cascade)
 }
