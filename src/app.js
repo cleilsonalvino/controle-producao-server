@@ -3,7 +3,7 @@ const app = express();
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 import cors from "cors";
-// import cron from "node-cron";
+import cron from "node-cron";
 
 app.use(cors());
 app.use(express.json());
@@ -11,10 +11,13 @@ app.post("/iniciar-pedido/:codigo", async (req, res) => {
   const { codigo } = req.params;
 
   try {
+    // Obter o horário UTC atual e ajustar para Brasília (GMT-3)
+    const horaBrasilia = new Date(new Date().getTime() - (3 * 60 * 60 * 1000)); // Subtrai 3 horas (em milissegundos)
+
     const pedidoAtualizado = await prisma.pedido.update({
       where: { codigo: parseInt(codigo) },
       data: {
-        horaInicio: new Date(),
+        horaInicio: horaBrasilia, // Usar a hora ajustada para Brasília
         situacao: "Em andamento"
       },
     });
@@ -26,25 +29,26 @@ app.post("/iniciar-pedido/:codigo", async (req, res) => {
   }
 });
 
+
 app.post("/pausar-pedido/:codigo", async (req, res) => {
   const codigo = parseInt(req.params.codigo);
-  const agora = new Date();
 
   try {
-    // Cria nova pausa
+    // Obter o horário UTC atual e ajustar para Brasília (GMT-3)
+    const horaBrasilia = new Date(new Date().getTime() - (3 * 60 * 60 * 1000)); // Subtrai 3 horas (em milissegundos)
+
+    // Cria nova pausa com hora ajustada para Brasília
     await prisma.pausa.create({
       data: {
-        horaPausa: new Date(),
+        horaPausa: horaBrasilia, // Usar a hora ajustada
         horaRetorno: null,
         pedido: {
           connect: { codigo: codigo },
         },
       },
     });
-    
-    
 
-    // Atualiza situação do pedido
+    // Atualiza a situação do pedido para "Pausado"
     const pedidoAtualizado = await prisma.pedido.update({
       where: { codigo },
       data: { situacao: "Pausado" },
@@ -58,25 +62,28 @@ app.post("/pausar-pedido/:codigo", async (req, res) => {
   }
 });
 
+
 app.post("/reiniciar-pedido/:codigo", async (req, res) => {
   const codigo = parseInt(req.params.codigo);
-  const agora = new Date();
 
   try {
+    // Obter o horário UTC atual e ajustar para Brasília (GMT-3)
+    const horaBrasilia = new Date(new Date().getTime() - (3 * 60 * 60 * 1000)); // Subtrai 3 horas (em milissegundos)
+
     // Atualiza o último registro de pausa (sem horaRetorno ainda)
     await prisma.pausa.updateMany({
       where: {
         pedidoCodigo: codigo,
         horaRetorno: {
-          equals: null, // <- é isso que faltava!
+          equals: null, // Apenas as pausas sem horaRetorno
         },
       },
       data: {
-        horaRetorno: agora,
+        horaRetorno: horaBrasilia, // Usar o horário ajustado para Brasília
       },
     });
 
-    // Atualiza situação do pedido
+    // Atualiza situação do pedido para "Em andamento"
     const pedidoAtualizado = await prisma.pedido.update({
       where: { codigo },
       data: { situacao: "Em andamento" },
@@ -104,7 +111,7 @@ app.post("/finalizar-pedido/:codigo", async (req, res) => {
         .json({ error: `Pedido com código ${codigo} não encontrado.` });
     }
 
-    const horaFinal = new Date();
+    const horaFinal = new Date(new Date().getTime() - (3 * 60 * 60 * 1000)); 
 
     // Busca todas as pausas associadas a esse pedido
     const pausas = await prisma.pausa.findMany({
@@ -461,6 +468,175 @@ app.get("/tabela-pedidos", async (req, res) => {
   }
 });
 
+// Rota para editar os detalhes principais do pedido
+app.put("/editar-pedido/:codigo", async (req, res) => {
+  const pedidoCodigo = parseInt(req.params.codigo);
+  const {
+    tipo,
+    quantidade,
+    situacao,
+    horaInicio,
+    horaFinal,
+    observacoes,
+    tempoProduzindo,
+    tempoTotal,
+    funcionarios,
+    maquinarios,
+    pausas
+  } = req.body;
+
+  if (isNaN(pedidoCodigo)) {
+    return res.status(400).json({ error: "Código do pedido inválido." });
+  }
+
+  try {
+    const dataToUpdate = {};
+
+    if (tipo !== undefined) dataToUpdate.tipo = tipo;
+    if (quantidade !== undefined) dataToUpdate.quantidade = parseInt(quantidade);
+    if (situacao !== undefined) dataToUpdate.situacao = situacao;
+    if (horaInicio !== undefined) dataToUpdate.horaInicio = horaInicio ? new Date(horaInicio) : null;
+    if (horaFinal !== undefined) dataToUpdate.horaFinal = horaFinal ? new Date(horaFinal) : null;
+    if (observacoes !== undefined) dataToUpdate.observacoes = observacoes;
+    if (tempoProduzindo !== undefined) dataToUpdate.tempoProduzindo = tempoProduzindo;
+    if (tempoTotal !== undefined) dataToUpdate.tempoTotal = tempoTotal;
+
+    if (funcionarios !== undefined) {
+      dataToUpdate.funcionarios = {
+        deleteMany: {},
+        create: funcionarios.map(func => ({
+          funcionario: {
+            connect: { id: func.id }
+          }
+        })),
+      };
+    }
+
+    if (maquinarios !== undefined) {
+      dataToUpdate.maquinarios = {
+        deleteMany: {},
+        create: maquinarios.map(maq => ({
+          maquinario: {
+            connect: { id: maq.id }
+          }
+        })),
+      };
+    }
+
+    if (pausas !== undefined) {
+      dataToUpdate.pausas = {
+        deleteMany: {},
+        create: pausas.map(pausa => ({
+          horaPausa: pausa.horaPausa ? new Date(pausa.horaPausa) : null,
+          horaRetorno: pausa.horaRetorno ? new Date(pausa.horaRetorno) : null,
+        })),
+      };
+    }
+
+    const updatedPedido = await prisma.pedido.update({
+      where: { codigo: pedidoCodigo },
+      data: dataToUpdate,
+      include: {
+        funcionarios: { include: { funcionario: true } },
+        maquinarios: { include: { maquinario: true } },
+        pausas: true,
+      },
+    });
+
+    res.json(updatedPedido);
+  } catch (error) {
+    console.error("Erro ao editar pedido:", error);
+    if (error.code === 'P2025') {
+      return res.status(404).json({ error: `Pedido com código ${pedidoCodigo} não encontrado.` });
+    }
+    res.status(500).json({ error: "Falha ao editar o pedido", details: error.message });
+  }
+});
+
+
+// Supondo que você esteja usando Express e Prisma Client
+// const { PrismaClient } = require("@prisma/client");
+// const prisma = new PrismaClient();
+
+async function getDadosPedidoCorrigido(req, res) {
+  const { codigo } = req.params;
+
+  try {
+    const pedido = await prisma.pedido.findUnique({
+      where: { codigo: parseInt(codigo) },
+      include: {
+        funcionarios: {
+          select: {
+            funcionarioId: true,
+          },
+        },
+        maquinarios: {
+          select: {
+            maquinarioId: true,
+          },
+        },
+        pausas: true, // Presume que todos os campos de pausa são necessários
+        tipoDetalhes: { // Alteração principal aqui para incluir todas as sub-entidades
+          include: {
+            lencol: true,
+            metragens: true, // Retornará um array de metragens
+            camisa: true,    // Retornará um array de camisas
+            outrosTipos: true,
+          },
+        },
+      },
+    });
+
+    if (!pedido) {
+      return res.status(404).json({ error: "Pedido não encontrado" });
+    }
+
+    // Formatar os dados para o frontend, garantindo que as datas sejam strings ISO
+    // e que as estruturas aninhadas estejam como o frontend espera.
+    const formattedPedido = {
+      ...pedido,
+      dataAtual: pedido.dataAtual ? pedido.dataAtual.toISOString() : null, // Adicionado para consistência
+      horaInicio: pedido.horaInicio ? pedido.horaInicio.toISOString() : null,
+      horaFinal: pedido.horaFinal ? pedido.horaFinal.toISOString() : null,
+      // O frontend EditarPedido_corrigido.jsx espera um array de objetos { id: X }
+      funcionarios: pedido.funcionarios.map((f) => ({ id: f.funcionarioId })),
+      maquinarios: pedido.maquinarios.map((m) => ({ id: m.maquinarioId })),
+      pausas: pedido.pausas.map((p) => ({
+        id: p.id, // Incluir ID da pausa se existir e for útil
+        horaPausa: p.horaPausa ? new Date(p.horaPausa).toISOString() : null, // Garantir que é Date antes de toISOString
+        horaRetorno: p.horaRetorno ? new Date(p.horaRetorno).toISOString() : null,
+      })),
+      // O frontend EditarPedido_corrigido.jsx já espera tipoDetalhes como um objeto
+      // contendo lencol (objeto), metragens (array), camisa (array), outrosTipos (objeto)
+      // ou null/array vazio se não existirem.
+      tipoDetalhes: pedido.tipoDetalhes ? {
+        ...pedido.tipoDetalhes,
+        // Não é necessário reformatar metragens e camisa aqui se o Prisma já os retorna como arrays de objetos
+        // Apenas garantir que lencol e outrosTipos sejam passados como estão ou como null
+        lencol: pedido.tipoDetalhes.lencol || null,
+        metragens: pedido.tipoDetalhes.metragens || [],
+        camisa: pedido.tipoDetalhes.camisa || [],
+        outrosTipos: pedido.tipoDetalhes.outrosTipos || null,
+      } : {
+        lencol: null,
+        metragens: [],
+        camisa: [],
+        outrosTipos: null,
+      },
+    };
+
+    res.json(formattedPedido);
+  } catch (error) {
+    console.error("Erro ao buscar pedido:", error);
+    res.status(500).json({ error: "Erro ao buscar pedido", details: error.message });
+  }
+}
+
+// Exemplo de como usar em suas rotas Express:
+app.get("/dados-pedido/:codigo", getDadosPedidoCorrigido);
+
+
+
 
 ////////////////////////////////////
 
@@ -699,72 +875,74 @@ app.delete("/deletar-maquinario/:id", async (req, res) => {
 });
 
 
-// cron.schedule('* * * * *', async () => {
-//   const agora = new Date(); // já está no timezone do servidor
-//   const hora = agora.getHours();
-//   const minuto = agora.getMinutes();
+cron.schedule('* * * * *', async () => {
+  // Calcula a hora de Brasília (+3 horas em relação ao UTC)
+  const agoraUTC = new Date(); 
+const horaBrasilia = new Date(agoraUTC.getTime() - (3 * 60 * 60 * 1000));
 
-//   let inicioFaixa = null;
 
-//   // Define a faixa de pausa (9:00, 12:00, 17:20)
-//   if (hora === 9 && minuto === 0) {
-//     inicioFaixa = new Date(agora);
-//     inicioFaixa.setHours(9, 0, 0, 0);
-//   } else if (hora === 12 && minuto === 0) {
-//     inicioFaixa = new Date(agora);
-//     inicioFaixa.setHours(12, 0, 0, 0);
-//   } else if (hora === 17 && minuto === 20) {
-//     inicioFaixa = new Date(agora);
-//     inicioFaixa.setHours(17, 20, 0, 0);
-//   }
+  const hora = horaBrasilia.getUTCHours();
+  const minuto = horaBrasilia.getUTCMinutes();
 
-//   if (!inicioFaixa) return; // Só continua se o horário for um dos específicos
+  let inicioFaixa = null;
 
-//   try {
-//     // Busca todos os pedidos em andamento
-//     const pedidosAtivos = await prisma.pedido.findMany({
-//       where: { situacao: 'Em andamento' },
-//     });
+  // Define a faixa de pausa (9:00, 12:00, 17:20) no horário de Brasília
+  if (hora === 9 && minuto === 0) {
+    inicioFaixa = new Date(agoraUTC.getTime() + (3 * 60 * 60 * 1000));
+    inicioFaixa.setUTCHours(9, 0, 0, 0);
+  } else if (hora === 12 && minuto === 0) {
+    inicioFaixa = new Date(agoraUTC.getTime() + (3 * 60 * 60 * 1000));
+    inicioFaixa.setUTCHours(12, 0, 0, 0);
+  } else if (hora === 17 && minuto === 20) {
+    inicioFaixa = new Date(agoraUTC.getTime() + (3 * 60 * 60 * 1000));
+    inicioFaixa.setUTCHours(17, 20, 0, 0);
+  }
 
-//     for (const pedido of pedidosAtivos) {
-//       // Verifica se o pedido está em andamento, sem verificar a hora de início
+  if (!inicioFaixa) return; // Só continua se o horário for um dos específicos
 
-//       // Verifica se já existe uma pausa aberta
-//       const pausaAberta = await prisma.pausa.findFirst({
-//         where: {
-//           pedidoCodigo: pedido.codigo,
-//           horaRetorno: null, // Verifica se já existe uma pausa aberta
-//         },
-//       });
+  try {
+    // Busca todos os pedidos em andamento
+    const pedidosAtivos = await prisma.pedido.findMany({
+      where: { situacao: 'Em andamento' },
+    });
 
-//       if (pausaAberta) {
-//         console.log(`⏸️ Pedido ${pedido.codigo} já está pausado.`);
-//         continue;
-//       }
+    for (const pedido of pedidosAtivos) {
+      // Verifica se já existe uma pausa aberta
+      const pausaAberta = await prisma.pausa.findFirst({
+        where: {
+          pedidoCodigo: pedido.codigo,
+          horaRetorno: null,
+        },
+      });
 
-//       // Cria a pausa para o pedido
-//       await prisma.pausa.create({
-//         data: {
-//           pedidoCodigo: pedido.codigo,
-//           horaPausa: inicioFaixa,
-//         },
-//       });
+      if (pausaAberta) {
+        console.log(`⏸️ Pedido ${pedido.codigo} já está pausado.`);
+        continue;
+      }
 
-//       // Atualiza o status do pedido para "Pausado"
-//       await prisma.pedido.update({
-//         where: { codigo: pedido.codigo },
-//         data: { situacao: 'Pausado' },
-//       });
+      // Cria a pausa para o pedido
+      await prisma.pausa.create({
+        data: {
+          pedidoCodigo: pedido.codigo,
+          horaPausa: inicioFaixa,
+        },
+      });
 
-//       console.log(`⏸️ Pedido ${pedido.codigo} pausado automaticamente às ${inicioFaixa.toLocaleTimeString()}`);
-//     }
+      // Atualiza o status do pedido para "Pausado"
+      await prisma.pedido.update({
+        where: { codigo: pedido.codigo },
+        data: { situacao: 'Pausado' },
+      });
 
-//   } catch (err) {
-//     console.error('❌ Erro no cron de pausa automática:', err);
-//   }
-// }, {
-//   timezone: "America/Sao_Paulo",
-// });
+      console.log(`⏸️ Pedido ${pedido.codigo} pausado automaticamente às ${inicioFaixa.toISOString()}`);
+    }
+
+  } catch (err) {
+    console.error('❌ Erro no cron de pausa automática:', err);
+  }
+});
+
+
 
 
 
