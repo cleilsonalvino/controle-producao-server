@@ -876,26 +876,26 @@ app.delete("/deletar-maquinario/:id", async (req, res) => {
 
 
 cron.schedule('* * * * *', async () => {
-  const agora = new Date(); // Hora local do servidor
-  const horaBrasilia = new Date(agora.getTime() + (3 * 60 * 60 * 1000)); // Adiciona 3 horas para o horário de Brasília
-  const hora = horaBrasilia.getHours();
-  const minuto = horaBrasilia.getMinutes();
+  // Calcula a hora de Brasília (+3 horas em relação ao UTC)
+  const agoraUTC = new Date(); 
+const horaBrasilia = new Date(agoraUTC.getTime() - (3 * 60 * 60 * 1000));
+
+
+  const hora = horaBrasilia.getUTCHours();
+  const minuto = horaBrasilia.getUTCMinutes();
 
   let inicioFaixa = null;
 
   // Define a faixa de pausa (9:00, 12:00, 17:20) no horário de Brasília
   if (hora === 9 && minuto === 0) {
-    inicioFaixa = new Date(horaBrasilia); // Cria a data com o horário de Brasília
-    inicioFaixa.setHours(9, 0, 0, 0); // Define para 09:00:00.000
+    inicioFaixa = new Date(agoraUTC.getTime() + (3 * 60 * 60 * 1000));
+    inicioFaixa.setUTCHours(9, 0, 0, 0);
   } else if (hora === 12 && minuto === 0) {
-    inicioFaixa = new Date(horaBrasilia);
-    inicioFaixa.setHours(12, 0, 0, 0); // Define para 12:00:00.000
-  } else if(hora === 15 && minuto === 11) {
-    inicioFaixa = new Date(horaBrasilia);
-    inicioFaixa.setHours(15, 11, 0, 0); // Define para 17:20:00.000
+    inicioFaixa = new Date(agoraUTC.getTime() + (3 * 60 * 60 * 1000));
+    inicioFaixa.setUTCHours(12, 0, 0, 0);
   } else if (hora === 17 && minuto === 20) {
-    inicioFaixa = new Date(horaBrasilia);
-    inicioFaixa.setHours(17, 20, 0, 0); // Define para 17:20:00.000
+    inicioFaixa = new Date(agoraUTC.getTime() + (3 * 60 * 60 * 1000));
+    inicioFaixa.setUTCHours(17, 20, 0, 0);
   }
 
   if (!inicioFaixa) return; // Só continua se o horário for um dos específicos
@@ -911,7 +911,7 @@ cron.schedule('* * * * *', async () => {
       const pausaAberta = await prisma.pausa.findFirst({
         where: {
           pedidoCodigo: pedido.codigo,
-          horaRetorno: null, // Verifica se já existe uma pausa aberta
+          horaRetorno: null,
         },
       });
 
@@ -934,15 +934,14 @@ cron.schedule('* * * * *', async () => {
         data: { situacao: 'Pausado' },
       });
 
-      console.log(`⏸️ Pedido ${pedido.codigo} pausado automaticamente às ${inicioFaixa.toLocaleTimeString()}`);
+      console.log(`⏸️ Pedido ${pedido.codigo} pausado automaticamente às ${inicioFaixa.toISOString()}`);
     }
 
   } catch (err) {
     console.error('❌ Erro no cron de pausa automática:', err);
   }
-}, {
-  timezone: "America/Sao_Paulo",
 });
+
 
 
 
